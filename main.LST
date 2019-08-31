@@ -1,0 +1,232 @@
+C51 COMPILER V9.56.0.0   MAIN                                                              11/15/2018 21:16:14 PAGE 1   
+
+
+C51 COMPILER V9.56.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE main.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          /****************************************************************
+   2          项目：第八届蓝桥杯福建赛区试题
+   3          编写者：黄东明
+   4          *****************************************************************/
+   5          #include "ds1302.h"
+   6          #include "display.h"
+   7          #include "KeySan.h"
+   8          #include "onewire.h"
+   9          /************写入时钟数据初始化***************BCD码*******************/
+  10          void ds1302_init(void)     //写入时分秒
+  11          {
+  12   1          Ds1302_Single_Byte_Write(ds1302_control_addr, 0x00);
+  13   1          Ds1302_Single_Byte_Write(ds1302_sec_addr_write, 0x51); //秒
+  14   1        Ds1302_Single_Byte_Write(ds1302_min_addr_write, 0x59); //分
+  15   1          Ds1302_Single_Byte_Write(ds1302_hor_addr_write, 0x23); //时
+  16   1        Ds1302_Single_Byte_Write(ds1302_control_addr,  0x80);
+  17   1      }
+  18          void ds1302_set(const unsigned char * t)
+  19          {
+  20   1          Ds1302_Single_Byte_Write(ds1302_sec_addr_write, (((t[2]/10)<<4)|(t[2]%10))); //秒
+  21   1        Ds1302_Single_Byte_Write(ds1302_min_addr_write, (((t[1]/10)<<4)|(t[2]%10))); //分
+  22   1          Ds1302_Single_Byte_Write(ds1302_hor_addr_write, (((t[0]/10)<<4)|(t[2]%10))); //时
+  23   1      }
+  24          /*********************************************************************/
+  25          unsigned char h_m_s[]={0,1,2};
+  26          unsigned char time[]={0,0,0,0,0,0,0,0}; //时钟数组                   
+  27          /************************显示*******************************************/
+  28          void get_Time(unsigned char *array)
+  29          {
+  30   1        array[7] = h_m_s[2] & 0x0f;
+  31   1        array[6] = h_m_s[2] >>4;
+  32   1        array[4] = h_m_s[1] & 0x0f;
+  33   1        array[3] = h_m_s[1] >>4;
+  34   1        array[1] = h_m_s[0] & 0x0f;
+  35   1        array[0] = h_m_s[0] >>4;
+  36   1        /**********hh-mm-ss*******1-4-7*******/
+  37   1      }
+  38          /*******************************************************************/
+  39          void ds1302_read(void)//读取时分秒
+  40          {
+  41   1          h_m_s[2] = Ds1302_Single_Byte_Read(ds1302_sec_addr_read);
+  42   1        h_m_s[1] = Ds1302_Single_Byte_Read(ds1302_min_addr_read);
+  43   1          h_m_s[0] = Ds1302_Single_Byte_Read(ds1302_hor_addr_read); 
+  44   1      }
+  45          /*********************************************************************************************************
+             -*********************************************/
+  46          /*****************闹钟存储比对******************************/
+  47          unsigned char Led_Time=250;//5秒钟     5000ms  200ms*25次
+  48          unsigned char Led_Interval=0;//0.2秒钟 200ms 亮0.2秒灭0.2秒
+  49          unsigned char clock[]={0,0,10,0,0,10,0,0};  //时钟数组
+  50          unsigned char h_m_s_c[]={0,0,0};
+  51          bit successFlag=0;//比较成功标志位
+  52          bit led_On_Off=0;//1亮0灭
+  53          void Go_led()
+  54          {
+C51 COMPILER V9.56.0.0   MAIN                                                              11/15/2018 21:16:14 PAGE 2   
+
+  55   1          P2=((P2&0x1f)|0x80);
+  56   1        P00=led_On_Off;
+  57   1        P2&=0x1f;
+  58   1      }
+  59          void Led(void)
+  60          {
+  61   1          if(Led_Time!=0)
+  62   1        {
+  63   2            if(Led_Interval==200)
+  64   2          {   
+  65   3            Go_led();
+  66   3            led_On_Off=~led_On_Off;
+  67   3            Led_Time--;
+  68   3            Led_Interval=0; 
+  69   3          }   
+  70   2        }
+  71   1        else successFlag=0;
+  72   1      }  
+  73          
+  74          void time_Contrast(void)
+  75          {
+  76   1          unsigned char i;
+  77   1          for(i=0;i<7;i++)
+  78   1        {
+  79   2            if(time[i]!=clock[i])return;
+  80   2        }
+  81   1        successFlag=1;   
+  82   1      }
+  83          
+  84          /**********定时器配置，用于时钟扫描**************************/
+  85          void Time_0_Init(void)
+  86          {  
+  87   1          AUXR|= 0x80;    //定时器时钟1T模式
+  88   1        TMOD|= 0x01;  //配置定时器工作模式
+  89   1          TH0 = (65536-1000)/256;
+  90   1          TL0 = (65536-1000)%256;  
+  91   1          EA  = 1;
+  92   1          ET0 = 1;  //打开定时器中断
+  93   1          TR0 = 1;  //启动定时器  
+  94   1      }
+  95          void close_Buzz()//蜂鸣器
+  96          {
+  97   1          P2=((P2&0x1f)|0xA0);
+  98   1        P0=1;
+  99   1        P2&=0x1f;
+ 100   1      }
+ 101          /*********************************************************************************************************
+             -***********************************/
+ 102          unsigned char keycount=0;
+ 103          bit setTime_or_clock=0;
+ 104          bit stop_read=0;
+ 105          bit tempFlag=0;
+ 106          unsigned char temp_Num[]={11,11,11,11,11,2,2,12};
+ 107          void key_Select()//时间按键选择时分秒判断
+ 108          {
+ 109   1          unsigned char temp;
+ 110   1          switch(KeySan())
+ 111   1        {
+ 112   2            case 1:
+ 113   2              tempFlag=0;
+ 114   2            setTime_or_clock=0;//进入时钟设定
+ 115   2            stop_read=1;
+C51 COMPILER V9.56.0.0   MAIN                                                              11/15/2018 21:16:14 PAGE 3   
+
+ 116   2            if(keycount==2)keycount=0;
+ 117   2            else keycount++;
+ 118   2            break;
+ 119   2          case 2:
+ 120   2              tempFlag=0;
+ 121   2            setTime_or_clock=1;//进入闹钟设定
+ 122   2            stop_read=1;
+ 123   2            if(keycount==2)keycount=0;
+ 124   2            else keycount++;
+ 125   2            break;
+ 126   2      
+ 127   2          case 3:
+ 128   2              tempFlag=0;
+ 129   2            if(setTime_or_clock==0)
+ 130   2            {
+ 131   3                h_m_s[keycount]=h_m_s[keycount]+1; //时钟加
+ 132   3              ds1302_set(h_m_s);
+ 133   3            }
+ 134   2            else
+ 135   2            { 
+ 136   3                h_m_s_c[keycount]=h_m_s_c[keycount]+1;  //闹钟加    
+ 137   3            }
+ 138   2            stop_read=0;
+ 139   2            break;
+ 140   2          
+ 141   2          case 4:
+ 142   2              tempFlag=1;     
+ 143   2                temp=rd_temperature();//温度
+ 144   2            temp_Num[6]=temp%10;
+ 145   2            temp_Num[5]=temp/10;
+ 146   2            break;/*
+ 147   2              if(setTime_or_clock==0)
+ 148   2            {
+ 149   2                h_m_s[keycount]=h_m_s[keycount]-1;
+ 150   2              ds1302_set(h_m_s);
+ 151   2            }
+ 152   2            else{
+ 153   2                h_m_s_c[keycount]=h_m_s_c[keycount]-1;
+ 154   2            }
+ 155   2            stop_read=0;*/
+ 156   2            
+ 157   2          case 0:tempFlag=0;break;
+ 158   2        }
+ 159   1      }
+ 160          /*********************************************************************************************************
+             -*******************************************/
+ 161          void main(void)
+ 162          {
+ 163   1          close_Buzz();
+ 164   1        /**********************/
+ 165   1        time[2] = 10; //-
+ 166   1        time[5] = 10; //-
+ 167   1          ds1302_init();//初始化时钟
+ 168   1        Time_0_Init();
+ 169   1        while(1)//循环读取
+ 170   1        {
+ 171   2          key_Select();
+ 172   2          if(successFlag==0)
+ 173   2          {
+ 174   3              if(stop_read==0){ds1302_read(); get_Time(time);}  
+ 175   3            time_Contrast();
+ 176   3          }
+C51 COMPILER V9.56.0.0   MAIN                                                              11/15/2018 21:16:14 PAGE 4   
+
+ 177   2          else Led();
+ 178   2        }
+ 179   1      } 
+ 180          /**********************************************************/
+ 181          //定时器中断服务函数
+ 182          
+ 183          void isr_timer_0(void)  interrupt 1  //默认中断优先级 1    这里是1ms
+ 184          {  
+ 185   1        if(successFlag==1)
+ 186   1        {
+ 187   2            Led_Interval++;
+ 188   2        }
+ 189   1          else{
+ 190   2            if(tempFlag==0)
+ 191   2          {
+ 192   3              if(setTime_or_clock==0)Go_display(time);
+ 193   3            else Go_display(clock);
+ 194   3          }
+ 195   2          else  Go_display(temp_Num);
+ 196   2        }
+ 197   1      
+ 198   1          TH0 = (65536-1000)/256;
+ 199   1          TL0 = (65536-1000)%256;  //定时器重载 
+ 200   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    576    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     33       3
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      5    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

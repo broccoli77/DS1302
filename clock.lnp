@@ -1,0 +1,6 @@
+"main.obj",
+"ds1302.obj",
+"display.obj",
+"keySan.obj",
+"onewire.obj" 
+TO "clock" 
